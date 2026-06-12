@@ -995,9 +995,14 @@ window.addEventListener('mousemove', e => {
     if (lens) { lens.style.left = e.clientX + 'px'; lens.style.top = e.clientY + 'px'; }
 });
 
+<script>
+// ... [KEEP ALL YOUR STABLE UPPER SCRIPT EXACTLY AS IT IS] ...
+
 /* ── ISOLATED BACKGROUND INTERACTION VERIFIER FOR THE GRID MATRIX ── */
 function executeVolatilePass(identityLabelText) {
-    const folderPath = `images/${identityLabelText}.jpg`;
+    // Slices off any trailing line-break hyphens automatically before reading paths
+    const polishedToken = identityLabelText.trim().replace(/-+$/, '');
+    const folderPath = `images/${polishedToken}.jpg`;
     const imageProbe = new Image();
     imageProbe.src = folderPath;
 
@@ -1026,4 +1031,24 @@ STATUS:      ACTIVE_VIEWPORT // SINGLE_TAP_TO_RELEASE
         console.log(`[SYS_PROBE]: Missing asset payload for target token: ${folderPath}`);
     };
 }
+
+function dismissVolatileDeck() {
+    const deckContainer = document.getElementById('volatile-image-deck');
+    const viewPortImg = document.getElementById('volatile-img-viewport');
+    deckContainer.style.display = 'none';
+    viewPortImg.src = "";
+}
+
+// Global click wire interceptor for your data elements
+document.addEventListener('click', function(e) {
+    const targetBlock = e.target.closest('.block');
+    if (targetBlock) {
+        const labelNode = targetBlock.querySelector('.identity-label');
+        if (labelNode) {
+            executeVolatilePass(labelNode.innerText.trim());
+        }
+    }
+});
+</script>
+</body>
 </html>
