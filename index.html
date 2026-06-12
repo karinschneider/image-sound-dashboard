@@ -826,6 +826,20 @@ function spawnArtworkPanel(idx, block, src, label) {
 
     /* drag via header */
     makePanelDraggable(panel, panel.querySelector('.artwork-float-header'));
+
+    /* ensure the panel is visible — scroll it into view once sized */
+    const ensureVisible = () => {
+        const panelRect = panel.getBoundingClientRect();
+        const fitsInView = panelRect.top >= 0 && panelRect.bottom <= window.innerHeight;
+        if (!fitsInView) {
+            panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+    if (imgEl.complete) {
+        ensureVisible();
+    } else {
+        imgEl.addEventListener('load', ensureVisible);
+    }
 }
 
 function makePanelDraggable(panel, handle) {
