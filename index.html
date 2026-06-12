@@ -115,7 +115,7 @@
         
         #grid-matrix { 
             display: grid; grid-template-columns: repeat(12, 1fr); auto-rows: 140px; 
-            gap: 15px; width: 100%; margin-bottom: 60px;
+            gap: 15px; width: 100%; margin-bottom: 20px;
         }
         
         .block { 
@@ -142,6 +142,25 @@
             padding: 4px 8px; display: inline-block; max-width: 100%;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             border: 1px solid var(--text); z-index: 5; margin-top: auto;
+        }
+ 
+        /* ── ARTWORK IMAGE REVEAL PANEL ── */
+        .artwork-reveal {
+            position: relative; width: 100%; margin-bottom: 60px;
+            border: 1px solid var(--text); overflow: hidden;
+            max-height: 0; opacity: 0;
+            transition: max-height 0.4s ease, opacity 0.3s ease, margin-bottom 0.4s ease;
+        }
+        .artwork-reveal.open { max-height: 600px; opacity: 1; }
+        .artwork-reveal img {
+            display: block; width: 100%; height: auto; object-fit: contain;
+            max-height: 600px;
+        }
+        .artwork-reveal.empty { display: none; margin-bottom: 0; }
+        .artwork-caption {
+            font-family: "Courier New", Courier, monospace; font-size: 10px;
+            letter-spacing: 0.1em; padding: 6px 10px; border-top: 1px solid var(--text);
+            color: var(--accent); text-transform: uppercase;
         }
  
         #ledger-container {
@@ -233,6 +252,13 @@
     </div>
     
     <div id="grid-matrix"></div>
+
+    <!-- ARTWORK IMAGE REVEAL PANEL -->
+    <div id="artwork-panel" class="artwork-reveal empty">
+        <img id="artwork-img" src="" alt="">
+        <div id="artwork-caption" class="artwork-caption"></div>
+    </div>
+
     <div id="orbital-lens"></div>
     <div id="vu-strip"><div id="vu-bar"></div></div>
  
@@ -246,6 +272,7 @@
      3. CLICK text → char codes + consonant clusters → partials
      4. Gate operators → structural layout mutation
      5. CORS → named audible burst + blinking badge
+     6. CLICK → toggle artwork image reveal panel
    No Math.random() in any audio path.
    No redesign of your CSS or HTML structure.
 ═══════════════════════════════════════════════ */
@@ -270,6 +297,7 @@ let googTickInterval = null;
 let corsProbeCache = {};
 let booted = false;
 let vuRafId = null;
+let currentArtworkIdx = null;
  
 const MUSEUMS = {
     whitney:  { label: 'WHITNEY',  raw: true,  goog: false,
@@ -694,6 +722,9 @@ function playStringSound(str, gainScale) {
 function mutateSystem(clickedBlock) {
     if (!audioCtx) return;
  
+    /* NEW: toggle artwork image reveal */
+    toggleArtwork(clickedBlock);
+ 
     /* YOUR ORIGINAL: random DOM reorder */
     for (let i = matrixContainer.children.length; i >= 0; i--) {
         matrixContainer.appendChild(matrixContainer.children[Math.random() * i | 0]);
@@ -711,6 +742,46 @@ function mutateSystem(clickedBlock) {
  
     const modeTrack = clickedBlock.getAttribute('data-mode').toUpperCase();
     logTrack('SWIFT', `CLICK // [${modeTrack}] // "${txt.substring(0,36)}" // ${txt.length} BYTES TRANSDUCED`);
+}
+ 
+/* ════════════════════════ ARTWORK IMAGE TOGGLE ════════════════════════ */
+function toggleArtwork(block) {
+    const panel = document.getElementById('artwork-panel');
+    const img   = document.getElementById('artwork-img');
+    const caption = document.getElementById('artwork-caption');
+    const idx   = block.getAttribute('data-idx');
+    const src   = block.getAttribute('data-artwork');
+    const label = block.querySelector('.identity-label') ? block.querySelector('.identity-label').innerText : '';
+ 
+    if (currentArtworkIdx === idx && panel.classList.contains('open')) {
+        /* same block clicked again → close */
+        panel.classList.remove('open');
+        currentArtworkIdx = null;
+        setTimeout(() => {
+            if (!panel.classList.contains('open')) {
+                panel.classList.add('empty');
+                img.src = '';
+            }
+        }, 400);
+        return;
+    }
+ 
+    currentArtworkIdx = idx;
+    panel.classList.remove('empty');
+    caption.textContent = label;
+ 
+    img.onerror = () => {
+        panel.classList.remove('open');
+        panel.classList.add('empty');
+        currentArtworkIdx = null;
+        logTrack('IMG', `NO ARTWORK FOUND // ${src}`, 'cors');
+    };
+    img.onload = () => {
+        panel.classList.add('open');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        logTrack('IMG', `ARTWORK LOADED // ${src}`);
+    };
+    img.src = src;
 }
  
 /* ════════════════════════ YOUR ORIGINAL: initializePolyphonicMatrix ════════════════════════ */
@@ -814,11 +885,13 @@ async function loadRepository() {
         const cleanTitle     = item.entry.replace(/[^a-zA-Z0-9]/g, "-");
         const identityString = `${item.year}_${fileCategory.toUpperCase()}_${cleanTitle}`;
         const imagePath      = `images/${item.year}_${fileCategory}.jpg`;
+        const artworkPath    = `images/${identityString}.jpg`;
  
         return `
             <div class="block" id="block-${idx}"
                  style="grid-column:${layout.col};grid-row:${layout.row}"
                  data-mode="${fileCategory}" data-text="${item.entry.replace(/"/g,"'")}"
+                 data-artwork="${artworkPath}" data-idx="${idx}"
                  onclick="mutateSystem(this)">
                 <canvas class="generative-canvas"></canvas>
                 <img src="${imagePath}" class="asset-img" onload="this.classList.add('revealed')" onerror="this.style.display='none';">
