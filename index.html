@@ -492,7 +492,7 @@ async function fetchGoogBytes(id) {
  
 function tickGoogGrain(id) {
     if (!audioCtx || masterMode !== 'goog') return;
-    const m = MUSEUMS[id];
+    const m  = MUSEUMS[id];
     const cn = channelNodes[id];
     if (!m.goog || !cn) return;
     const bytes = googByteCache[id];
@@ -716,7 +716,7 @@ function mutateSystem(clickedBlock) {
  
     const modeTrack = clickedBlock.getAttribute('data-mode').toUpperCase();
     logTrack('SWIFT', `CLICK // [${modeTrack}] // "${txt.substring(0,36)}" // ${txt.length} BYTES TRANSDUCED`);
- 
+
     /* ── UNTOUCHED ASYNC VALIDATION LOOKUP INTERCEPTOR ── */
     const identityElement = clickedBlock.querySelector('.identity-label');
     if (identityElement) {
@@ -1026,4 +1026,13 @@ STATUS:      ACTIVE_VIEWPORT // SINGLE_TAP_TO_RELEASE
         console.log(`[SYS_PROBE]: Missing asset payload for target token: ${folderPath}`);
     };
 }
+
+function dismissVolatileDeck() {
+    const deckContainer = document.getElementById('volatile-image-deck');
+    const viewPortImg = document.getElementById('volatile-img-viewport');
+    deckContainer.style.display = 'none';
+    viewPortImg.src = "";
+}
+</script>
+</body>
 </html>
