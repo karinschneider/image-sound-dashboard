@@ -965,7 +965,10 @@ async function loadRepository() {
         const cleanTitle     = item.entry.replace(/[^a-zA-Z0-9]/g, "-");
         const identityString = `${item.year}_${fileCategory.toUpperCase()}_${cleanTitle}`;
         const imagePath      = `images/${item.year}_${fileCategory}.jpg`;
-        const artworkPath    = `images/${identityString}.jpg`;
+        /* Artwork filenames must be flat (no subfolders), so sanitize any
+           slashes in the year (e.g. "2026/20" -> "2026-20") for the artwork path only. */
+        const safeYear       = item.year.replace(/[^a-zA-Z0-9]/g, "-");
+        const artworkPath    = `images/${safeYear}_${fileCategory.toUpperCase()}_${cleanTitle}.jpg`;
  
         return `
             <div class="block" id="block-${idx}"
