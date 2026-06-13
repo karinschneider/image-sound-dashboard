@@ -1,12 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark-mode">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta id="theme-color-meta" name="theme-color" content="#000000">
     <title>Karin Schneider | System Index</title>
     <style>
         :root { --bg: #ffffff; --text: #000000; --accent: #666666; --border: #dddddd; }
         body.dark-mode { --bg: #000000; --text: #ffffff; --accent: #999999; --border: #333333; }
+
+        html {
+            background-color: var(--bg);
+            transition: background-color 0.2s;
+        }
+        /* CSS vars on :root aren't affected by body's dark-mode class, since
+           dark-mode is set on <body>. Mirror the class so <html> stays in sync
+           via JS (see toggleMode) — this fallback covers the moment before JS runs. */
+        html.dark-mode { background-color: #000000; }
         
         body { 
             background-color: var(--bg); color: var(--text); 
@@ -393,6 +405,24 @@ function activateSystem() {
     logTrack('HARDWARE', 'BUS TERMINALS OPEN — LIVE NETWORK ROUTING ACTIVE');
     loadRepository();
 }
+
+/* ════════════════════════ AUDIO CONTEXT RESUME (mobile sleep/lock) ════════════════════════ */
+/* Mobile browsers suspend the AudioContext when the screen locks or the tab
+   loses focus. The visual loop (rAF) and DOM keep running, but sound dies
+   silently. Resuming the SAME context (not rebuilding the graph) restores
+   audio without duplicating oscillators or re-running setup. */
+function resumeAudioIfNeeded() {
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => logTrack('SYS', 'AUDIO CONTEXT RESUMED'));
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resumeAudioIfNeeded();
+});
+window.addEventListener('focus', resumeAudioIfNeeded);
+window.addEventListener('touchstart', resumeAudioIfNeeded, { passive: true });
+window.addEventListener('click', resumeAudioIfNeeded);
  
 /* ════════════════════════ SWITCHBOARD UI ════════════════════════ */
 function buildSwitchboardUI() {
@@ -811,12 +841,11 @@ function spawnArtworkPanel(idx, block, src, label) {
     layer.appendChild(panel);
     openArtworkPanels.set(idx, panel);
 
-    /* click image → close this panel only, no bubbling to block */
+    /* prevent taps/clicks on the image from bubbling to the block (which would
+       re-trigger mutateSystem / re-toggle). Only the ✕ closes the panel now. */
     const imgEl = panel.querySelector('img');
-    imgEl.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeArtworkPanel(idx);
-    });
+    imgEl.addEventListener('click', (e) => e.stopPropagation());
+    imgEl.addEventListener('touchstart', (e) => e.stopPropagation());
 
     /* close button */
     panel.querySelector('.artwork-float-close').addEventListener('click', (e) => {
@@ -880,23 +909,47 @@ function sampleDominantSaturation(imgEl) {
 function makePanelDraggable(panel, handle) {
     let dragging = false, startX, startY, originLeft, originTop;
 
-    handle.addEventListener('mousedown', (e) => {
+    const start = (clientX, clientY) => {
         dragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
+        startX = clientX;
+        startY = clientY;
         originLeft = parseFloat(panel.style.left);
         originTop  = parseFloat(panel.style.top);
+    };
+    const move = (clientX, clientY) => {
+        if (!dragging) return;
+        panel.style.left = (originLeft + (clientX - startX)) + 'px';
+        panel.style.top  = (originTop  + (clientY - startY)) + 'px';
+    };
+    const end = () => { dragging = false; };
+
+    /* Mouse */
+    handle.addEventListener('mousedown', (e) => {
+        start(e.clientX, e.clientY);
         e.preventDefault();
         e.stopPropagation();
     });
+    window.addEventListener('mousemove', (e) => move(e.clientX, e.clientY));
+    window.addEventListener('mouseup', end);
 
-    window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        panel.style.left = (originLeft + (e.clientX - startX)) + 'px';
-        panel.style.top  = (originTop  + (e.clientY - startY)) + 'px';
+    /* Touch — on both the header and the image, so a finger can drag the
+       panel directly without needing the small header strip */
+    [handle, panel.querySelector('img')].forEach(el => {
+        if (!el) return;
+        el.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            start(t.clientX, t.clientY);
+            e.stopPropagation();
+        }, { passive: true });
     });
-
-    window.addEventListener('mouseup', () => { dragging = false; });
+    window.addEventListener('touchmove', (e) => {
+        if (!dragging) return;
+        const t = e.touches[0];
+        move(t.clientX, t.clientY);
+        e.preventDefault(); /* stop page scroll while dragging a panel */
+    }, { passive: false });
+    window.addEventListener('touchend', end);
+    window.addEventListener('touchcancel', end);
 }
  
 /* ════════════════════════ YOUR ORIGINAL: initializePolyphonicMatrix ════════════════════════ */
@@ -1144,8 +1197,11 @@ function logTrack(agent, detail, style) {
 /* ════════════════════════ YOUR ORIGINAL: toggleMode ════════════════════════ */
 function toggleMode() {
     document.body.classList.toggle('dark-mode');
-    document.getElementById('main-name').innerText =
-        document.body.classList.contains('dark-mode') ? "K.ari.n Schneider" : "KARIN SCHNEIDER";
+    document.documentElement.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    document.getElementById('main-name').innerText = isDark ? "K.ari.n Schneider" : "KARIN SCHNEIDER";
+    const themeMeta = document.getElementById('theme-color-meta');
+    if (themeMeta) themeMeta.setAttribute('content', isDark ? '#000000' : '#ffffff');
     logTrack('SYS_INVERT', 'POLARITY INVERSION EFFECTED');
 }
  
@@ -1172,24 +1228,39 @@ function startVU() {
 }
 
  
-/* ════════════════════════ MOUSEMOVE ════════════════════════ */
+/* ════════════════════════ MOUSEMOVE / TOUCHMOVE ════════════════════════ */
 let lastMouseX = window.innerWidth / 2, lastMouseY = window.innerHeight / 2;
 let mouseVelNorm = 0;
 let _prevMouseX = null, _prevMouseY = null, _prevMouseT = null;
 
-window.addEventListener('mousemove', e => {
-    updateSpatialAudio(e.clientX, e.clientY);
-    if (lens) { lens.style.left = e.clientX + 'px'; lens.style.top = e.clientY + 'px'; }
+function handlePointerMove(clientX, clientY) {
+    updateSpatialAudio(clientX, clientY);
+    if (lens) { lens.style.left = clientX + 'px'; lens.style.top = clientY + 'px'; }
 
     const now = performance.now();
     if (_prevMouseX !== null) {
         const dt = Math.max(now - _prevMouseT, 1);
-        const dist = Math.hypot(e.clientX - _prevMouseX, e.clientY - _prevMouseY);
+        const dist = Math.hypot(clientX - _prevMouseX, clientY - _prevMouseY);
         mouseVelNorm = Math.min((dist / dt) / 2, 1); /* ~2px/ms feels "fast" */
     }
-    _prevMouseX = e.clientX; _prevMouseY = e.clientY; _prevMouseT = now;
-    lastMouseX = e.clientX; lastMouseY = e.clientY;
-});
+    _prevMouseX = clientX; _prevMouseY = clientY; _prevMouseT = now;
+    lastMouseX = clientX; lastMouseY = clientY;
+}
+
+window.addEventListener('mousemove', e => handlePointerMove(e.clientX, e.clientY));
+
+/* Touch: track the orbital lens / spatial audio / intensity field with a
+   finger too. passive:true so page scroll still works normally — the lens
+   simply follows the last touch point. */
+window.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    if (t) handlePointerMove(t.clientX, t.clientY);
+}, { passive: true });
+
+window.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    if (t) handlePointerMove(t.clientX, t.clientY);
+}, { passive: true });
 
 /* ════════════════════════ ARTWORK COLOR INTENSITY (blended, continuous) ════════════════════════ */
 /* Three real, simultaneous inputs blend into each open image's saturation,
