@@ -152,7 +152,7 @@
         .artwork-float {
             position: absolute; pointer-events: auto;
             border: 1px solid var(--text); background: var(--bg);
-            width: 320px; max-width: 90vw;
+            width: 384px; max-width: 90vw;
             box-shadow: 0 6px 24px rgba(0,0,0,0.4);
             animation: artwork-in 0.25s ease;
         }
@@ -837,8 +837,43 @@ function spawnArtworkPanel(idx, block, src, label) {
     };
     if (imgEl.complete) {
         ensureVisible();
+        sampleDominantSaturation(imgEl);
     } else {
-        imgEl.addEventListener('load', ensureVisible);
+        imgEl.addEventListener('load', () => {
+            ensureVisible();
+            sampleDominantSaturation(imgEl);
+        });
+    }
+}
+
+/* ════════════════════════ DOMINANT COLOR SAMPLING ════════════════════════ */
+/* Reads the image's own average saturation (its "prevailing color" intensity)
+   so the live blend can push toward MORE of that same color — never a
+   different hue, just more or less of what's already there. */
+function sampleDominantSaturation(imgEl) {
+    try {
+        const canvas = document.createElement('canvas');
+        const w = 32, h = 32;
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(imgEl, 0, 0, w, h);
+        const data = ctx.getImageData(0, 0, w, h).data;
+
+        let totalSat = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i] / 255, g = data[i+1] / 255, b = data[i+2] / 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const l = (max + min) / 2;
+            const sat = (max === min) ? 0 : (l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min));
+            totalSat += sat;
+            count++;
+        }
+        /* Average saturation 0–1 → baseline percent, scaled to a 60–140% home range */
+        const avgSat = totalSat / count;
+        imgEl.dataset.homeSat = (60 + avgSat * 80).toFixed(1);
+    } catch (err) {
+        /* Cross-origin or decode issue — fall back to neutral */
+        imgEl.dataset.homeSat = '100';
     }
 }
 
@@ -1115,29 +1150,110 @@ function toggleMode() {
 }
  
 /* ════════════════════════ VU METER ════════════════════════ */
+let vuAnalyser = null;
+let vuBuf = null;
+
 function startVU() {
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    outputGainNode.connect(analyser);
-    const buf = new Uint8Array(analyser.frequencyBinCount);
+    vuAnalyser = audioCtx.createAnalyser();
+    vuAnalyser.fftSize = 256;
+    outputGainNode.connect(vuAnalyser); /* read-only tap — analyser has no further output */
+    vuBuf = new Uint8Array(vuAnalyser.frequencyBinCount);
     const bar = document.getElementById('vu-bar');
- 
+
     function tick() {
-        analyser.getByteFrequencyData(buf);
+        vuAnalyser.getByteFrequencyData(vuBuf);
         let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i];
-        bar.style.width = ((sum / buf.length / 255) * 100).toFixed(1) + '%';
+        for (let i = 0; i < vuBuf.length; i++) sum += vuBuf[i];
+        bar.style.width = ((sum / vuBuf.length / 255) * 100).toFixed(1) + '%';
         bar.style.background = masterMode === 'goog' ? '#ccaa00' : masterMode === 'mute' ? '#333' : '#00cc66';
         vuRafId = requestAnimationFrame(tick);
     }
     tick();
 }
+
  
 /* ════════════════════════ MOUSEMOVE ════════════════════════ */
+let lastMouseX = window.innerWidth / 2, lastMouseY = window.innerHeight / 2;
+let mouseVelNorm = 0;
+let _prevMouseX = null, _prevMouseY = null, _prevMouseT = null;
+
 window.addEventListener('mousemove', e => {
     updateSpatialAudio(e.clientX, e.clientY);
     if (lens) { lens.style.left = e.clientX + 'px'; lens.style.top = e.clientY + 'px'; }
+
+    const now = performance.now();
+    if (_prevMouseX !== null) {
+        const dt = Math.max(now - _prevMouseT, 1);
+        const dist = Math.hypot(e.clientX - _prevMouseX, e.clientY - _prevMouseY);
+        mouseVelNorm = Math.min((dist / dt) / 2, 1); /* ~2px/ms feels "fast" */
+    }
+    _prevMouseX = e.clientX; _prevMouseY = e.clientY; _prevMouseT = now;
+    lastMouseX = e.clientX; lastMouseY = e.clientY;
 });
+
+/* ════════════════════════ ARTWORK COLOR INTENSITY (blended, continuous) ════════════════════════ */
+/* Three real, simultaneous inputs blend into each open image's saturation,
+   anchored around that image's OWN dominant-color saturation (homeSat) —
+   never shifting hue, only how much "itself" the color is right now:
+     - mouse proximity + velocity (human activity)
+     - live audio spectrum, read-only tap (machine activity, runs regardless)
+     - number of open panels (the field's own density)
+   No single input determines the result; even a still mouse and silence
+   still drift slightly via panel-count and residual easing. */
+function startArtworkIntensityLoop() {
+    function tick() {
+        const panelCount = openArtworkPanels.size;
+
+        /* Audio factor: average spectrum level 0–1, read-only tap */
+        let audioNorm = 0;
+        if (vuAnalyser && vuBuf) {
+            vuAnalyser.getByteFrequencyData(vuBuf);
+            let sum = 0;
+            for (let i = 0; i < vuBuf.length; i++) sum += vuBuf[i];
+            audioNorm = (sum / vuBuf.length) / 255;
+        }
+
+        /* Density factor: more open panels = field intensifies, capped */
+        const densityNorm = Math.min(panelCount / 6, 1);
+
+        openArtworkPanels.forEach(panel => {
+            const img = panel.querySelector('img');
+            if (!img) return;
+
+            const homeSat = parseFloat(img.dataset.homeSat || '100');
+
+            let targetSaturate;
+            if (masterMode === 'mute') {
+                /* MUTE: image rests at its true, unaltered home state */
+                targetSaturate = homeSat;
+            } else {
+                const rect = panel.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                const dist = Math.hypot(lastMouseX - cx, lastMouseY - cy);
+                const proxNorm = Math.max(0, 1 - dist / 400);
+
+                /* Blend all three — no single term can reach the extremes alone */
+                const blend = proxNorm * 0.4 + mouseVelNorm * 0.2 + audioNorm * 0.2 + densityNorm * 0.2;
+
+                /* Perturb around homeSat: +/- up to ~50% of home value */
+                targetSaturate = homeSat * (1 + (blend - 0.3) * 0.7);
+                targetSaturate = Math.max(homeSat * 0.5, Math.min(homeSat * 1.6, targetSaturate));
+            }
+
+            const current = parseFloat(img.dataset.sat || homeSat || '100');
+            const eased = current + (targetSaturate - current) * 0.04;
+            img.dataset.sat = eased.toFixed(1);
+            img.style.filter = `saturate(${eased.toFixed(1)}%)`;
+        });
+
+        requestAnimationFrame(tick);
+    }
+    tick();
+}
+startArtworkIntensityLoop();
+
+
 </script>
 </body>
 </html>
