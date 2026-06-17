@@ -143,13 +143,24 @@
         
         .generative-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
         
-        /* FIX #4: prevent label text truncation — allow wrapping instead */
+        /* Block label — matches footprint table typographic system */
         .identity-label { 
-            position: relative; font-size: 10px; font-weight: bold; 
-            letter-spacing: 0.05em; background: var(--bg); color: var(--text);
-            padding: 4px 8px; display: inline-block; max-width: 100%;
-            white-space: normal; overflow: visible; word-break: break-word;
+            position: relative;
+            background: var(--bg); color: var(--text);
+            padding: 5px 8px; display: block; max-width: 100%;
             border: 1px solid var(--text); z-index: 5; margin-top: auto;
+            line-height: 1.4;
+        }
+        .identity-label .lbl-year {
+            font-size: 11px; font-weight: bold; display: block;
+        }
+        .identity-label .lbl-mode {
+            font-size: 10px; text-transform: uppercase; color: var(--accent);
+            letter-spacing: 0.05em; display: block;
+        }
+        .identity-label .lbl-entry {
+            font-size: 12px; font-weight: bold; display: block;
+            word-break: break-word; white-space: normal;
         }
  
         /* FLOATING ARTWORK PANELS */
@@ -229,6 +240,17 @@
             transition: width 0.07s, background 0.3s;
         }
 
+        /* ── FILTER BUTTONS — matches footprint page exactly ── */
+        .controls { margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+        .filter-btn {
+            border: 1px solid var(--text); background: none; padding: 4px 12px;
+            cursor: pointer; font-size: 11px; text-transform: uppercase;
+            font-weight: 500; color: var(--text); transition: all 0.2s;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        }
+        .filter-btn:hover { background: var(--text); color: var(--bg); }
+        .filter-btn.active { background: var(--text); color: var(--bg); }
+
         /* FIX #6: Footer */
         footer {
             font-family: "Courier New", Courier, monospace;
@@ -254,6 +276,9 @@
         <div class="header-top">
             <div class="title" id="main-name">K.ari.n Schneider</div>
             <button class="mode-toggle" onclick="toggleMode()">Invert System</button>
+        </div>
+        <div class="controls" id="nav-filters">
+            <!-- populated by JS after data loads -->
         </div>
     </header>
  
@@ -761,8 +786,8 @@ const openArtworkPanels = new Map();
 function openArtwork(block) {
     const idx = block.getAttribute('data-idx');
     const src = block.getAttribute('data-artwork');
-    /* Panel header shows full CSV info; block label stays as short year_MODE_entry */
-    const label = block.getAttribute('data-fullinfo') || (block.querySelector('.identity-label') ? block.querySelector('.identity-label').innerText : '');
+    /* Panel header shows full CSV info; block shows year/mode/entry separately */
+    const label = block.getAttribute('data-fullinfo') || block.getAttribute('data-text') || '';
 
     const probe = new Image();
     probe.onerror = () => {
@@ -1035,7 +1060,11 @@ async function loadRepository() {
                  onclick="mutateSystem(this)">
                 <canvas class="generative-canvas"></canvas>
                 <img src="${imagePath}" class="asset-img" onload="this.classList.add('revealed')" onerror="this.style.display='none';">
-                <div class="identity-label">${identityString}</div>
+                <div class="identity-label">
+                    <span class="lbl-year">${item.year}</span>
+                    <span class="lbl-mode">${displayMode}</span>
+                    <span class="lbl-entry">${item.entry}</span>
+                </div>
             </div>
         `;
     }).join('');
@@ -1044,6 +1073,17 @@ async function loadRepository() {
     initializePolyphonicMatrix();
     attachInteractions();
     harvestAuthenticLedger();
+
+    /* Build filter nav — same categories and order as footprint page */
+    const categories = ["code", "time-based_media", "shows", "writing", "collection", "founding"];
+    const categoryLabels = { "code":"CODE", "time-based_media":"TIME-BASED MEDIA", "shows":"SHOWS", "writing":"WRITING", "collection":"COLLECTION", "founding":"FOUNDING" };
+    const nav = document.getElementById('nav-filters');
+    nav.innerHTML = `<button class="filter-btn active" onclick="filterGrid('all')">SELECTED</button>`;
+    categories.forEach(cat => {
+        nav.innerHTML += `<button class="filter-btn" onclick="filterGrid('${cat}')">${categoryLabels[cat]}</button>`;
+    });
+    nav.innerHTML += `<button class="filter-btn" onclick="filterGrid('plus')">+</button>`;
+
     logTrack('VCS', `REPOSITORY LOADED — ${database.length} ENTRIES`);
 }
  
@@ -1072,7 +1112,7 @@ function initializeCanvases() {
 function attachInteractions() {
     document.querySelectorAll('.block').forEach(block => {
         const mode  = block.getAttribute('data-mode');
-        const label = block.querySelector('.identity-label').innerText;
+        const label = block.getAttribute('data-fullinfo') || block.getAttribute('data-text') || '';
  
         block.addEventListener('mouseenter', () => {
             if      (mode === 'time-based_media') { lens.style.width = '70px'; lens.style.height = '70px'; }
@@ -1146,6 +1186,22 @@ function logTrack(agent, detail, style) {
     if (ledgerContainer.children.length > 5) ledgerContainer.removeChild(ledgerContainer.firstChild);
 }
  
+/* ════════════════════════ FILTER — matches footprint page ════════════════════════ */
+function filterGrid(type) {
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        const t = btn.innerText.trim();
+        const isAll  = type === 'all' && t === 'SELECTED';
+        const isPlus = type === 'plus' && t === '+';
+        const isMatch = t.toLowerCase().replace(/[\s-]/g,'_') === type.toLowerCase().replace(/[\s-]/g,'_');
+        btn.classList.toggle('active', isAll || isMatch || isPlus);
+    });
+    document.querySelectorAll('.block').forEach(block => {
+        const mode = block.getAttribute('data-mode');
+        const show = type === 'all' || mode === type;
+        block.style.display = show ? '' : 'none';
+    });
+}
+
 /* FIX #5: toggleMode — orbital lens turns black on white background */
 function toggleMode() {
     document.body.classList.toggle('dark-mode');
@@ -1263,3 +1319,4 @@ startArtworkIntensityLoop();
 </script>
 </body>
 </html>
+      
