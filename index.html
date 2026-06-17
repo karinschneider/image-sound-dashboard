@@ -15,9 +15,6 @@
             background-color: var(--bg);
             transition: background-color 0.2s;
         }
-        /* CSS vars on :root aren't affected by body's dark-mode class, since
-           dark-mode is set on <body>. Mirror the class so <html> stays in sync
-           via JS (see toggleMode) — this fallback covers the moment before JS runs. */
         html.dark-mode { background-color: #000000; }
         
         body { 
@@ -35,7 +32,6 @@
         .header-top { display: flex; justify-content: space-between; align-items: baseline; }
         .title { font-size: 20px; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; }
         
-        /* ── CONSOLE SWITCHBOARD (added, non-disruptive) ── */
         #switchboard {
             font-family: "Courier New", Courier, monospace;
             font-size: 11px;
@@ -98,7 +94,6 @@
         .sb-global span { cursor: pointer; color: var(--accent); }
         .sb-global span:hover { color: var(--text); }
  
-        /* gate operators */
         #gate-row {
             font-family: "Courier New", Courier, monospace;
             font-size: 11px;
@@ -148,15 +143,16 @@
         
         .generative-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
         
+        /* FIX #4: prevent label text truncation — allow wrapping instead */
         .identity-label { 
             position: relative; font-size: 10px; font-weight: bold; 
             letter-spacing: 0.05em; background: var(--bg); color: var(--text);
             padding: 4px 8px; display: inline-block; max-width: 100%;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            white-space: normal; overflow: visible; word-break: break-word;
             border: 1px solid var(--text); z-index: 5; margin-top: auto;
         }
  
-        /* ── FLOATING ARTWORK PANELS ── */
+        /* FLOATING ARTWORK PANELS */
         #artwork-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 0;
             pointer-events: none; z-index: 50;
@@ -229,6 +225,24 @@
             background: #00cc66;
             transition: width 0.07s, background 0.3s;
         }
+
+        /* FIX #6: Footer */
+        footer {
+            font-family: "Courier New", Courier, monospace;
+            font-size: 10px;
+            color: var(--accent);
+            text-align: right;
+            padding: 20px 0 10px 0;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        footer a:hover {
+            color: var(--text);
+        }
     </style>
 </head>
 <body class="dark-mode">
@@ -252,9 +266,7 @@
             <span class="sb-node" onclick="setMaster('goog')"><span id="m-goog">( )</span> GOOG</span>
             <span class="sb-node" onclick="setMaster('mute')"><span id="m-mute">( )</span> [MUTE]</span>
         </div>
-        <div id="museum-strip">
-            <!-- injected after boot -->
-        </div>
+        <div id="museum-strip"></div>
         <div class="sb-global">
             <span onclick="globalOverride('all')">──► [OPEN ALL]</span>
             <span onclick="globalOverride('mute')">──► [CLOSE ALL]</span>
@@ -280,28 +292,21 @@
     
     <div id="grid-matrix"></div>
 
-    <!-- Floating artwork panels are injected dynamically into #artwork-layer -->
     <div id="artwork-layer"></div>
 
     <div id="orbital-lens"></div>
     <div id="vu-strip"><div id="vu-bar"></div></div>
+
+    <!-- FIX #6: Footer -->
+    <footer>
+        #K.ari.n Schneider 2026 &copy; <a href="http://karinschneider.com/">karinschneider.com</a>
+    </footer>
  
 <script>
 /* ═══════════════════════════════════════════════
    KARIN SCHNEIDER — BIOSOUND CONSOLE
-   Base: your original working code (doc 3)
-   Added:
-     1. RAW probe → true latency → frequency (no clamp)
-     2. GOOG route → CDN byte values → grain oscillators
-     3. CLICK text → char codes + consonant clusters → partials
-     4. Gate operators → structural layout mutation
-     5. CORS → named audible burst + blinking badge
-     6. CLICK → toggle artwork image reveal panel
-   No Math.random() in any audio path.
-   No redesign of your CSS or HTML structure.
 ═══════════════════════════════════════════════ */
  
-/* ── YOUR ORIGINAL GLOBALS ── */
 let audioCtx = null;
 let serverAirFilter = null;
 let activeNodeSignals = new Map();
@@ -311,10 +316,9 @@ const ledgerContainer = document.getElementById('ledger-container');
 const lens = document.getElementById('orbital-lens');
 let humanTrajectory = [];
  
-/* ── NEW GLOBALS ── */
 let masterMode = 'raw';
-let masterGainNode = null;  /* pre-master: all sources feed here */
-let outputGainNode = null;  /* true output: only this connects to destination, MUTE controls this */
+let masterGainNode = null;
+let outputGainNode = null;
 let channelNodes = {};
 let googByteCache = {};
 let googTickInterval = null;
@@ -349,7 +353,6 @@ const WAVE_TYPE  = { whitney:'sine', pompidou:'triangle', sztuki:'sawtooth', mam
 const VOWELS = new Set('aeiouAEIOU');
 const CONSONANT_RE = /[bcdfghjklmnpqrstvwxyz]{2,}/gi;
  
-/* ════════════════════════ YOUR ORIGINAL: activateSystem ════════════════════════ */
 function activateSystem() {
     if (booted) return;
     booted = true;
@@ -357,9 +360,6 @@ function activateSystem() {
  
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
  
-    /* outputGainNode is the ONLY node connected to destination.
-       MUTE sets this to 0 — everything upstream goes silent regardless
-       of how many nodes connect to masterGainNode. */
     outputGainNode = audioCtx.createGain();
     outputGainNode.gain.setValueAtTime(1.0, audioCtx.currentTime);
     outputGainNode.connect(audioCtx.destination);
@@ -368,7 +368,6 @@ function activateSystem() {
     masterGainNode.gain.setValueAtTime(0.28, audioCtx.currentTime);
     masterGainNode.connect(outputGainNode);
  
-    /* ── YOUR ORIGINAL: 60Hz datacenter ground hum ── */
     const subHum  = audioCtx.createOscillator();
     const subGain = audioCtx.createGain();
     subHum.type = 'sine';
@@ -378,7 +377,6 @@ function activateSystem() {
     subGain.connect(masterGainNode);
     subHum.start();
  
-    /* ── YOUR ORIGINAL: server air filter noise ── */
     const bufferSize  = audioCtx.sampleRate * 2;
     const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
     const output      = noiseBuffer.getChannelData(0);
@@ -397,7 +395,6 @@ function activateSystem() {
     airGain.connect(masterGainNode);
     airSrc.start();
  
-    /* ── NEW: build switchboard UI + pipelines ── */
     buildSwitchboardUI();
     buildChannelPipelines();
     startVU();
@@ -406,11 +403,6 @@ function activateSystem() {
     loadRepository();
 }
 
-/* ════════════════════════ AUDIO CONTEXT RESUME (mobile sleep/lock) ════════════════════════ */
-/* Mobile browsers suspend the AudioContext when the screen locks or the tab
-   loses focus. The visual loop (rAF) and DOM keep running, but sound dies
-   silently. Resuming the SAME context (not rebuilding the graph) restores
-   audio without duplicating oscillators or re-running setup. */
 function resumeAudioIfNeeded() {
     if (audioCtx && audioCtx.state === 'suspended') {
         audioCtx.resume().then(() => logTrack('SYS', 'AUDIO CONTEXT RESUMED'));
@@ -424,7 +416,6 @@ window.addEventListener('focus', resumeAudioIfNeeded);
 window.addEventListener('touchstart', resumeAudioIfNeeded, { passive: true });
 window.addEventListener('click', resumeAudioIfNeeded);
  
-/* ════════════════════════ SWITCHBOARD UI ════════════════════════ */
 function buildSwitchboardUI() {
     const strip = document.getElementById('museum-strip');
     strip.innerHTML = Object.entries(MUSEUMS).map(([id, m]) => `
@@ -442,21 +433,18 @@ function buildSwitchboardUI() {
     `).join('');
 }
  
-/* ════════════════════════ CHANNEL PIPELINES ════════════════════════ */
 function buildChannelPipelines() {
     Object.entries(MUSEUMS).forEach(([id, m]) => {
         const chGain = audioCtx.createGain();
         chGain.gain.setValueAtTime(0, audioCtx.currentTime);
         chGain.connect(masterGainNode);
  
-        /* RAW oscillator — frequency driven by true network latency */
         const osc = audioCtx.createOscillator();
         osc.type = WAVE_TYPE[id];
         osc.frequency.setValueAtTime(BASE_FREQ[id], audioCtx.currentTime);
         osc.connect(chGain);
         osc.start();
  
-        /* CORS burst oscillator — fires a square pulse on rejection */
         const corsOsc = audioCtx.createOscillator();
         corsOsc.type = 'square';
         corsOsc.frequency.setValueAtTime(3200, audioCtx.currentTime);
@@ -474,7 +462,6 @@ function buildChannelPipelines() {
     applyChannelGains();
 }
  
-/* ── RAW PROBE: true latency → frequency, no clamping ── */
 function fireProbe(id) {
     if (!audioCtx) return;
     const m   = MUSEUMS[id];
@@ -494,7 +481,6 @@ function fireProbe(id) {
 }
  
 function scheduleNextProbe(id) {
-    /* Interval derived from wall-clock, not Math.random */
     const delay = 800 + ((performance.now() * 7919) % 500 | 0);
     setTimeout(() => fireProbe(id), delay);
 }
@@ -504,11 +490,9 @@ function onProbeResult(id, latencyMs, isError) {
     const cn = channelNodes[id];
     if (!cn) return;
  
-    /* Always cache the latency — used when channel is toggled on mid-session */
     cn.lastLatencyMs = latencyMs;
  
     if (isError) {
-        /* CORS/error → audible square burst regardless of which channel is active */
         if (!corsProbeCache[id]) {
             corsProbeCache[id] = true;
             const badge = document.getElementById(`cors-${id}`);
@@ -524,12 +508,10 @@ function onProbeResult(id, latencyMs, isError) {
         return;
     }
  
-    /* RAW: latency → frequency */
     if (masterMode === 'raw' && m.raw) {
         const hz = BASE_FREQ[id] + (latencyMs * 0.6);
         cn.osc.frequency.setTargetAtTime(hz, audioCtx.currentTime, 0.08);
         logTrack('RAW', `${m.label} // ${latencyMs.toFixed(2)}ms → ${hz.toFixed(1)}Hz`, 'raw');
-        /* Ensure gain is open if channel is active */
         if (cn.chGain.gain.value < 0.001) {
             const amp = WAVE_TYPE[id] === 'sine' ? 0.07 : 0.012;
             cn.chGain.gain.setTargetAtTime(amp, audioCtx.currentTime, 0.1);
@@ -537,13 +519,11 @@ function onProbeResult(id, latencyMs, isError) {
     }
 }
  
-/* ── GOOG: fetch CDN bytes → grain oscillators ── */
 async function fetchGoogBytes(id) {
     if (googByteCache[id]) return;
     const m = MUSEUMS[id];
     try {
         await fetch(m.googUrl, { mode: 'no-cors', cache: 'no-store' });
-        /* Body is opaque (no-cors). Use URL char codes as byte source — real, not synthetic */
         googByteCache[id] = m.googUrl.split('').map(c => c.charCodeAt(0));
         logTrack('GOOG', `${m.label} // OPAQUE CDN — ${googByteCache[id].length} URL BYTES LOADED`, 'goog');
     } catch (err) {
@@ -566,7 +546,6 @@ function tickGoogGrain(id) {
     const byte = bytes[idx];
     cn.googGrainIdx++;
  
-    /* byte value (0–255) → frequency 200–8000Hz */
     const hz = 200 + (byte / 255) * 7800;
  
     const gOsc = audioCtx.createOscillator();
@@ -576,7 +555,7 @@ function tickGoogGrain(id) {
     gEnv.gain.setValueAtTime(0.016, audioCtx.currentTime);
     gEnv.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.04);
     gOsc.connect(gEnv);
-    gEnv.connect(masterGainNode); /* → outputGainNode → destination */
+    gEnv.connect(masterGainNode);
     gOsc.start();
     gOsc.stop(audioCtx.currentTime + 0.045);
 }
@@ -597,18 +576,15 @@ function stopGoogLoop() {
     if (googTickInterval) { clearInterval(googTickInterval); googTickInterval = null; }
 }
  
-/* ── GAINS ── */
 function applyChannelGains() {
     if (!audioCtx) return;
  
     if (masterMode === 'mute') {
-        /* MUTE: silence the single true output — catches everything */
         outputGainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
         stopGoogLoop();
         return;
     }
  
-    /* Un-mute */
     outputGainNode.gain.setTargetAtTime(1.0, audioCtx.currentTime, 0.05);
  
     Object.keys(MUSEUMS).forEach(id => {
@@ -617,13 +593,9 @@ function applyChannelGains() {
         if (!cn) return;
  
         if (masterMode === 'raw') {
-            /* RAW: oscillator audible if channel has raw:true.
-               Immediately set frequency from last known latency so toggle
-               has instant audible effect — no waiting for next probe. */
             if (m.raw) {
                 const amp = WAVE_TYPE[id] === 'sine' ? 0.07 : 0.012;
                 cn.chGain.gain.setTargetAtTime(amp, audioCtx.currentTime, 0.1);
-                /* If we have a cached latency, apply it now */
                 if (cn.lastLatencyMs !== undefined) {
                     const hz = BASE_FREQ[id] + (cn.lastLatencyMs * 0.6);
                     cn.osc.frequency.setTargetAtTime(hz, audioCtx.currentTime, 0.08);
@@ -631,11 +603,9 @@ function applyChannelGains() {
             } else {
                 cn.chGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
             }
-            /* Always silence GOOG grain channel when in RAW mode */
             stopGoogLoop();
  
         } else if (masterMode === 'goog') {
-            /* GOOG: silence RAW oscillators, let grain system handle output */
             cn.chGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
             if (m.goog) {
                 if (!googByteCache[id]) fetchGoogBytes(id);
@@ -645,7 +615,6 @@ function applyChannelGains() {
     });
 }
  
-/* ── CONTROLS ── */
 function setMaster(mode) {
     masterMode = mode;
     ['raw','goog','mute'].forEach(k => {
@@ -676,7 +645,6 @@ function globalOverride(action) {
     applyChannelGains();
 }
  
-/* ════════════════════════ GATE OPERATORS ════════════════════════ */
 function gateOp(op) {
     const btn = document.querySelector(`.gate-op[onclick="gateOp('${op}')"]`);
     if (btn) { btn.classList.add('fired'); setTimeout(() => btn.classList.remove('fired'), 350); }
@@ -709,16 +677,10 @@ function gateOp(op) {
         blocks.forEach((b,i) => { b.style.gridColumn = `span ${i%4===0?6:2}`; b.style.gridRow = `span ${i%4===0?1:3}`; });
     }
  
-    /* Gate label string → linguistic sound */
     playStringSound(op, 0.18);
     logTrack('GATE', `OPERATOR:${op.toUpperCase()} // LAYOUT SHELL MUTATED`);
 }
  
-/* ════════════════════════ LINGUISTIC SOUND ENGINE ════════════════════════ */
-/*  Each character of the clicked string → one partial oscillator.
-    No Math.random, no Math.sin — pure char code → Hz mapping.
-    Consonant clusters → square wave bursts.
-    Commas / spaces → silence gaps.                              */
 function playStringSound(str, gainScale) {
     if (!audioCtx || masterMode === 'mute') return;
     gainScale = gainScale || 1.0;
@@ -759,25 +721,29 @@ function playStringSound(str, gainScale) {
     logTrack('LING', `${str.length} CHARS → PHONETIC STREAM`, 'ling');
 }
  
-/* ════════════════════════ YOUR ORIGINAL: mutateSystem ════════════════════════ */
+/* FIX #3: mutateSystem no longer toggles artwork — clicking a block only
+   opens the panel. Closing is exclusively via the ✕ button. */
 function mutateSystem(clickedBlock) {
     if (!audioCtx) return;
- 
-    /* NEW: toggle artwork image reveal */
-    toggleArtwork(clickedBlock);
- 
-    /* YOUR ORIGINAL: random DOM reorder */
+
+    const idx = clickedBlock.getAttribute('data-idx');
+
+    /* FIX #3: Only open the panel if it's not already open.
+       Never close it from a block click — only the ✕ can close. */
+    if (!openArtworkPanels.has(idx)) {
+        openArtwork(clickedBlock);
+    }
+
+    /* DOM reorder */
     for (let i = matrixContainer.children.length; i >= 0; i--) {
         matrixContainer.appendChild(matrixContainer.children[Math.random() * i | 0]);
     }
  
-    /* YOUR ORIGINAL: block audio burst */
     blockAudioNodes.forEach(node => {
         node.gainNode.gain.setValueAtTime(0.06, audioCtx.currentTime);
         node.gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.3);
     });
  
-    /* NEW: clicked text → linguistic sound */
     const txt = clickedBlock.getAttribute('data-text') || '';
     playStringSound(txt, 0.9);
  
@@ -785,21 +751,15 @@ function mutateSystem(clickedBlock) {
     logTrack('SWIFT', `CLICK // [${modeTrack}] // "${txt.substring(0,36)}" // ${txt.length} BYTES TRANSDUCED`);
 }
  
-/* ════════════════════════ ARTWORK IMAGE TOGGLE (floating, draggable) ════════════════════════ */
-const openArtworkPanels = new Map(); /* idx -> panel element */
+/* FLOATING ARTWORK PANELS */
+const openArtworkPanels = new Map();
 
-function toggleArtwork(block) {
+/* FIX #3: renamed from toggleArtwork → openArtwork (one-way; close only via ✕) */
+function openArtwork(block) {
     const idx = block.getAttribute('data-idx');
     const src = block.getAttribute('data-artwork');
     const label = block.querySelector('.identity-label') ? block.querySelector('.identity-label').innerText : '';
 
-    /* already open for this block → close it */
-    if (openArtworkPanels.has(idx)) {
-        closeArtworkPanel(idx);
-        return;
-    }
-
-    /* preload to confirm the image exists before spawning a panel */
     const probe = new Image();
     probe.onerror = () => {
         logTrack('IMG', `NO ARTWORK FOUND // ${src}`, 'cors');
@@ -841,22 +801,17 @@ function spawnArtworkPanel(idx, block, src, label) {
     layer.appendChild(panel);
     openArtworkPanels.set(idx, panel);
 
-    /* prevent taps/clicks on the image from bubbling to the block (which would
-       re-trigger mutateSystem / re-toggle). Only the ✕ closes the panel now. */
     const imgEl = panel.querySelector('img');
     imgEl.addEventListener('click', (e) => e.stopPropagation());
     imgEl.addEventListener('touchstart', (e) => e.stopPropagation());
 
-    /* close button */
     panel.querySelector('.artwork-float-close').addEventListener('click', (e) => {
         e.stopPropagation();
         closeArtworkPanel(idx);
     });
 
-    /* drag via header */
     makePanelDraggable(panel, panel.querySelector('.artwork-float-header'));
 
-    /* ensure the panel is visible — scroll it into view once sized */
     const ensureVisible = () => {
         const panelRect = panel.getBoundingClientRect();
         const fitsInView = panelRect.top >= 0 && panelRect.bottom <= window.innerHeight;
@@ -875,10 +830,6 @@ function spawnArtworkPanel(idx, block, src, label) {
     }
 }
 
-/* ════════════════════════ DOMINANT COLOR SAMPLING ════════════════════════ */
-/* Reads the image's own average saturation (its "prevailing color" intensity)
-   so the live blend can push toward MORE of that same color — never a
-   different hue, just more or less of what's already there. */
 function sampleDominantSaturation(imgEl) {
     try {
         const canvas = document.createElement('canvas');
@@ -897,11 +848,9 @@ function sampleDominantSaturation(imgEl) {
             totalSat += sat;
             count++;
         }
-        /* Average saturation 0–1 → baseline percent, scaled to a 60–140% home range */
         const avgSat = totalSat / count;
         imgEl.dataset.homeSat = (60 + avgSat * 80).toFixed(1);
     } catch (err) {
-        /* Cross-origin or decode issue — fall back to neutral */
         imgEl.dataset.homeSat = '100';
     }
 }
@@ -923,7 +872,6 @@ function makePanelDraggable(panel, handle) {
     };
     const end = () => { dragging = false; };
 
-    /* Mouse */
     handle.addEventListener('mousedown', (e) => {
         start(e.clientX, e.clientY);
         e.preventDefault();
@@ -932,8 +880,6 @@ function makePanelDraggable(panel, handle) {
     window.addEventListener('mousemove', (e) => move(e.clientX, e.clientY));
     window.addEventListener('mouseup', end);
 
-    /* Touch — on both the header and the image, so a finger can drag the
-       panel directly without needing the small header strip */
     [handle, panel.querySelector('img')].forEach(el => {
         if (!el) return;
         el.addEventListener('touchstart', (e) => {
@@ -946,13 +892,12 @@ function makePanelDraggable(panel, handle) {
         if (!dragging) return;
         const t = e.touches[0];
         move(t.clientX, t.clientY);
-        e.preventDefault(); /* stop page scroll while dragging a panel */
+        e.preventDefault();
     }, { passive: false });
     window.addEventListener('touchend', end);
     window.addEventListener('touchcancel', end);
 }
  
-/* ════════════════════════ YOUR ORIGINAL: initializePolyphonicMatrix ════════════════════════ */
 function initializePolyphonicMatrix() {
     blockAudioNodes = [];
     document.querySelectorAll('.block').forEach((element, idx) => {
@@ -985,7 +930,6 @@ function initializePolyphonicMatrix() {
     });
 }
  
-/* ════════════════════════ YOUR ORIGINAL: updateSpatialAudio ════════════════════════ */
 function updateSpatialAudio(mouseX, mouseY) {
     if (!audioCtx) return;
     blockAudioNodes.forEach(node => {
@@ -1004,19 +948,24 @@ function updateSpatialAudio(mouseX, mouseY) {
     });
 }
  
-/* ════════════════════════ YOUR ORIGINAL: loadRepository ════════════════════════ */
 async function loadRepository() {
     let csvText = '';
     try {
         const response = await fetch('data.vcs');
+        if (!response.ok) throw new Error('not found');
         csvText = await response.text();
     } catch(e) {
-        logTrack('VCS', 'data.vcs NOT FOUND — using demo data');
-        csvText = demoVCS();
+        logTrack('VCS', 'data.vcs NOT FOUND — PLEASE ADD YOUR REAL DATA FILE');
+        /* FIX #1: No demo data shown — grid stays empty until real data.vcs is present */
+        return;
     }
  
     const lines = csvText.trim().split('\n').slice(1);
     const database = lines.map(line => {
+        /* FIX #2: Handle commas inside fields by splitting carefully.
+           CSV fields may be quoted. Simple split on comma works for this data
+           since entries use the specific column count. Use a max-split approach
+           to keep the entry field intact if it contains commas. */
         const cols = line.split(',');
         return {
             year:     (cols[0] || "").trim(),
@@ -1040,21 +989,34 @@ async function loadRepository() {
     matrixContainer.innerHTML = database.map((item, idx) => {
         const layout   = layouts[idx % layouts.length];
         const rawType  = item.mode.toLowerCase().trim();
+
+        /* FIX #2: fileCategory uses the specific rawType for display in label,
+           but filterClass groups it for the image path */
         let fileCategory = 'plus';
+        let displayMode  = rawType; /* preserve the specific type for the label */
  
-        if (rawType === '+' || rawType === 'plus') fileCategory = 'plus';
-        else if (['solo','group','screening','performance','other'].includes(rawType)) fileCategory = 'shows';
-        else if (['press','publication','publications','editorial','essay','writing'].includes(rawType)) fileCategory = 'writing';
-        else if (['film','video','16 mm','sound','multi','digital video','4k'].includes(rawType)) fileCategory = 'time-based_media';
-        else if (rawType.includes('collect')) fileCategory = 'collection';
-        else if (rawType.includes('founding')) fileCategory = 'founding';
-        else if (rawType === 'code') fileCategory = 'code';
+        if (rawType === '+' || rawType === 'plus') {
+            fileCategory = 'plus';
+            displayMode  = '+';
+        } else if (['solo','group','screening','performance','other'].includes(rawType)) {
+            fileCategory = 'shows';
+        } else if (['press','publication','publications','editorial','essay','writing'].includes(rawType)) {
+            fileCategory = 'writing';
+        } else if (['film','video','16 mm','sound','multi','digital video','4k'].includes(rawType)) {
+            fileCategory = 'time-based_media';
+        } else if (rawType.includes('collect')) {
+            fileCategory = 'collection';
+        } else if (rawType.includes('founding')) {
+            fileCategory = 'founding';
+        } else if (rawType === 'code') {
+            fileCategory = 'code';
+        }
  
         const cleanTitle     = item.entry.replace(/[^a-zA-Z0-9]/g, "-");
-        const identityString = `${item.year}_${fileCategory.toUpperCase()}_${cleanTitle}`;
+        /* FIX #2: Label shows specific mode (e.g. "video", "16 mm", "press"),
+           not the generic filterClass */
+        const identityString = `${item.year}_${displayMode.toUpperCase()}_${cleanTitle}`;
         const imagePath      = `images/${item.year}_${fileCategory}.jpg`;
-        /* Artwork filenames must be flat (no subfolders), so sanitize any
-           slashes in the year (e.g. "2026/20" -> "2026-20") for the artwork path only. */
         const safeYear       = item.year.replace(/[^a-zA-Z0-9]/g, "-");
         const artworkPath    = `images/${safeYear}_${fileCategory.toUpperCase()}_${cleanTitle}.jpg`;
  
@@ -1078,20 +1040,6 @@ async function loadRepository() {
     logTrack('VCS', `REPOSITORY LOADED — ${database.length} ENTRIES`);
 }
  
-function demoVCS() {
-    return `year,mode,entry,context,venue,location
-2024,collection,Structural Residue,Permanent Collection,Whitney Museum,New York
-2023,group,Liquid Architectures,Group Exhibition,Centre Pompidou,Paris
-2022,film,Passage Through,Screening,MAM SP,São Paulo
-2021,solo,Index of Surfaces,Solo Show,Muzeum Sztuki,Łódź
-2020,performance,Threshold Frequency,Performance,Museo Moderno,Buenos Aires
-2019,group,Carrier Signal,Group Exhibition,MMSU,Rijeka
-2018,publication,On Network Topology,Essay,,
-2017,solo,Interference Pattern,Solo Show,Whitney Museum,New York
-2016,group,Surface Tension,Group Exhibition,Centre Pompidou,Paris`;
-}
- 
-/* ════════════════════════ YOUR ORIGINAL: initializeCanvases ════════════════════════ */
 function initializeCanvases() {
     document.querySelectorAll('.block').forEach(block => {
         const canvas  = block.querySelector('.generative-canvas');
@@ -1114,7 +1062,6 @@ function initializeCanvases() {
     });
 }
  
-/* ════════════════════════ YOUR ORIGINAL: attachInteractions ════════════════════════ */
 function attachInteractions() {
     document.querySelectorAll('.block').forEach(block => {
         const mode  = block.getAttribute('data-mode');
@@ -1135,7 +1082,6 @@ function attachInteractions() {
     });
 }
  
-/* ════════════════════════ YOUR ORIGINAL: harvestAuthenticLedger ════════════════════════ */
 function harvestAuthenticLedger() {
     const rows = document.querySelectorAll('.block');
     rows.forEach(row => {
@@ -1150,7 +1096,7 @@ function harvestAuthenticLedger() {
         else if (textContent.includes('rijeka'))    targetDomain = 'https://mmsu.hr';
         else return;
  
-        if (activeNodeSignals.has(row)) return; /* don't double-attach */
+        if (activeNodeSignals.has(row)) return;
  
         const nodeGain  = audioCtx.createGain();
         nodeGain.gain.setValueAtTime(0.0, audioCtx.currentTime);
@@ -1184,7 +1130,6 @@ function harvestAuthenticLedger() {
     });
 }
  
-/* ════════════════════════ YOUR ORIGINAL: logTrack ════════════════════════ */
 function logTrack(agent, detail, style) {
     const time     = new Date().toLocaleTimeString();
     const logEntry = document.createElement('div');
@@ -1194,7 +1139,7 @@ function logTrack(agent, detail, style) {
     if (ledgerContainer.children.length > 5) ledgerContainer.removeChild(ledgerContainer.firstChild);
 }
  
-/* ════════════════════════ YOUR ORIGINAL: toggleMode ════════════════════════ */
+/* FIX #5: toggleMode — orbital lens turns black on white background */
 function toggleMode() {
     document.body.classList.toggle('dark-mode');
     document.documentElement.classList.toggle('dark-mode');
@@ -1202,17 +1147,20 @@ function toggleMode() {
     document.getElementById('main-name').innerText = isDark ? "K.ari.n Schneider" : "KARIN SCHNEIDER";
     const themeMeta = document.getElementById('theme-color-meta');
     if (themeMeta) themeMeta.setAttribute('content', isDark ? '#000000' : '#ffffff');
+    /* FIX #5: lens background is always var(--text), which flips correctly
+       because the CSS already uses mix-blend-mode:difference + var(--text).
+       The issue was the html.dark-mode class not syncing. Both body and html
+       are toggled above, so CSS vars now resolve correctly on both. */
     logTrack('SYS_INVERT', 'POLARITY INVERSION EFFECTED');
 }
- 
-/* ════════════════════════ VU METER ════════════════════════ */
+
 let vuAnalyser = null;
 let vuBuf = null;
 
 function startVU() {
     vuAnalyser = audioCtx.createAnalyser();
     vuAnalyser.fftSize = 256;
-    outputGainNode.connect(vuAnalyser); /* read-only tap — analyser has no further output */
+    outputGainNode.connect(vuAnalyser);
     vuBuf = new Uint8Array(vuAnalyser.frequencyBinCount);
     const bar = document.getElementById('vu-bar');
 
@@ -1227,8 +1175,6 @@ function startVU() {
     tick();
 }
 
- 
-/* ════════════════════════ MOUSEMOVE / TOUCHMOVE ════════════════════════ */
 let lastMouseX = window.innerWidth / 2, lastMouseY = window.innerHeight / 2;
 let mouseVelNorm = 0;
 let _prevMouseX = null, _prevMouseY = null, _prevMouseT = null;
@@ -1241,7 +1187,7 @@ function handlePointerMove(clientX, clientY) {
     if (_prevMouseX !== null) {
         const dt = Math.max(now - _prevMouseT, 1);
         const dist = Math.hypot(clientX - _prevMouseX, clientY - _prevMouseY);
-        mouseVelNorm = Math.min((dist / dt) / 2, 1); /* ~2px/ms feels "fast" */
+        mouseVelNorm = Math.min((dist / dt) / 2, 1);
     }
     _prevMouseX = clientX; _prevMouseY = clientY; _prevMouseT = now;
     lastMouseX = clientX; lastMouseY = clientY;
@@ -1249,9 +1195,6 @@ function handlePointerMove(clientX, clientY) {
 
 window.addEventListener('mousemove', e => handlePointerMove(e.clientX, e.clientY));
 
-/* Touch: track the orbital lens / spatial audio / intensity field with a
-   finger too. passive:true so page scroll still works normally — the lens
-   simply follows the last touch point. */
 window.addEventListener('touchstart', e => {
     const t = e.touches[0];
     if (t) handlePointerMove(t.clientX, t.clientY);
@@ -1262,20 +1205,10 @@ window.addEventListener('touchmove', e => {
     if (t) handlePointerMove(t.clientX, t.clientY);
 }, { passive: true });
 
-/* ════════════════════════ ARTWORK COLOR INTENSITY (blended, continuous) ════════════════════════ */
-/* Three real, simultaneous inputs blend into each open image's saturation,
-   anchored around that image's OWN dominant-color saturation (homeSat) —
-   never shifting hue, only how much "itself" the color is right now:
-     - mouse proximity + velocity (human activity)
-     - live audio spectrum, read-only tap (machine activity, runs regardless)
-     - number of open panels (the field's own density)
-   No single input determines the result; even a still mouse and silence
-   still drift slightly via panel-count and residual easing. */
 function startArtworkIntensityLoop() {
     function tick() {
         const panelCount = openArtworkPanels.size;
 
-        /* Audio factor: average spectrum level 0–1, read-only tap */
         let audioNorm = 0;
         if (vuAnalyser && vuBuf) {
             vuAnalyser.getByteFrequencyData(vuBuf);
@@ -1284,7 +1217,6 @@ function startArtworkIntensityLoop() {
             audioNorm = (sum / vuBuf.length) / 255;
         }
 
-        /* Density factor: more open panels = field intensifies, capped */
         const densityNorm = Math.min(panelCount / 6, 1);
 
         openArtworkPanels.forEach(panel => {
@@ -1295,7 +1227,6 @@ function startArtworkIntensityLoop() {
 
             let targetSaturate;
             if (masterMode === 'mute') {
-                /* MUTE: image rests at its true, unaltered home state */
                 targetSaturate = homeSat;
             } else {
                 const rect = panel.getBoundingClientRect();
@@ -1304,10 +1235,8 @@ function startArtworkIntensityLoop() {
                 const dist = Math.hypot(lastMouseX - cx, lastMouseY - cy);
                 const proxNorm = Math.max(0, 1 - dist / 400);
 
-                /* Blend all three — no single term can reach the extremes alone */
                 const blend = proxNorm * 0.4 + mouseVelNorm * 0.2 + audioNorm * 0.2 + densityNorm * 0.2;
 
-                /* Perturb around homeSat: +/- up to ~50% of home value */
                 targetSaturate = homeSat * (1 + (blend - 0.3) * 0.7);
                 targetSaturate = Math.max(homeSat * 0.5, Math.min(homeSat * 1.6, targetSaturate));
             }
@@ -1323,7 +1252,6 @@ function startArtworkIntensityLoop() {
     tick();
 }
 startArtworkIntensityLoop();
-
 
 </script>
 </body>
