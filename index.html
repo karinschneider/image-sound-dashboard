@@ -173,8 +173,11 @@
             letter-spacing: 0.1em; text-transform: uppercase;
             padding: 5px 8px; border-bottom: 1px solid var(--text);
             color: var(--accent); display: flex; justify-content: space-between;
-            align-items: center; cursor: grab; user-select: none;
-            background: var(--bg);
+            align-items: flex-start; cursor: grab; user-select: none;
+            background: var(--bg); gap: 8px;
+        }
+        .artwork-float-header span:first-child {
+            white-space: normal; word-break: break-word; line-height: 1.5;
         }
         .artwork-float-header:active { cursor: grabbing; }
         .artwork-float-close {
@@ -758,7 +761,8 @@ const openArtworkPanels = new Map();
 function openArtwork(block) {
     const idx = block.getAttribute('data-idx');
     const src = block.getAttribute('data-artwork');
-    const label = block.querySelector('.identity-label') ? block.querySelector('.identity-label').innerText : '';
+    /* Panel header shows full CSV info; block label stays as short year_MODE_entry */
+    const label = block.getAttribute('data-fullinfo') || (block.querySelector('.identity-label') ? block.querySelector('.identity-label').innerText : '');
 
     const probe = new Image();
     probe.onerror = () => {
@@ -1013,9 +1017,11 @@ async function loadRepository() {
         }
  
         const cleanTitle     = item.entry.replace(/[^a-zA-Z0-9]/g, "-");
-        /* FIX #2: Label shows specific mode (e.g. "video", "16 mm", "press"),
-           not the generic filterClass */
+        /* Block label: year_MODE_entry (short, 3 columns only) */
         const identityString = `${item.year}_${displayMode.toUpperCase()}_${cleanTitle}`;
+        /* Full info for panel header: all 6 columns joined with · */
+        const fullInfo = [item.year, item.mode, item.entry, item.context, item.venue, item.location]
+            .filter(Boolean).join(' · ');
         const imagePath      = `images/${item.year}_${fileCategory}.jpg`;
         const safeYear       = item.year.replace(/[^a-zA-Z0-9]/g, "-");
         const artworkPath    = `images/${safeYear}_${fileCategory.toUpperCase()}_${cleanTitle}.jpg`;
@@ -1024,6 +1030,7 @@ async function loadRepository() {
             <div class="block" id="block-${idx}"
                  style="grid-column:${layout.col};grid-row:${layout.row}"
                  data-mode="${fileCategory}" data-text="${item.entry.replace(/"/g,"'")}"
+                 data-fullinfo="${fullInfo.replace(/"/g,"'")}"
                  data-artwork="${artworkPath}" data-idx="${idx}"
                  onclick="mutateSystem(this)">
                 <canvas class="generative-canvas"></canvas>
